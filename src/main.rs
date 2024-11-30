@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
     validate_env_vars()?;
 
-    log4rs::init_file("log4rs.yaml", Default::default())?;
+    log4rs::init_file("/app/log4rs.yaml", Default::default())?;
 
     let api_token = env::var("CLOUDFLARE_API_TOKEN").expect("CLOUDFLARE_API_TOKEN must be set");
     let zone_id = env::var("CLOUDFLARE_ZONE_ID").expect("CLOUDFLARE_ZONE_ID must be set");
@@ -152,7 +152,7 @@ where
 }
 
 fn backup_dns_record(record: &DnsRecord, domain_name: &str) -> Result<(), Box<dyn Error>> {
-    let backup_dir = Path::new("backups");
+    let backup_dir = Path::new("/app/backups");
     if !backup_dir.exists() {
         fs::create_dir(backup_dir)?;
     }

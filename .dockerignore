@@ -1,0 +1,24 @@
+# Rust build artifacts
+target/
+
+# Environment and local configuration
+.env
+.git
+.gitignore
+
+# Logs and backups (these will be mounted as volumes)
+logs/
+backups/
+
+# Documentation (excluding LICENSE)
+README.md
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*~
+
+# We don't need the Dockerfile itself in the build context
+Dockerfile
+.dockerignore
