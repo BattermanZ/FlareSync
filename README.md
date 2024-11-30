@@ -5,7 +5,7 @@ FlareSync is a lightweight Rust application that automatically updates your Clou
 ## Features
 - Periodically checks your current public IP address.
 - Updates your Cloudflare DNS records only when necessary.
-- Asynchronous operation powered by Tokio for efficiency.
+- Asynchronous operation powered by `tokio` for efficiency.
 - Detailed and structured logging with `log4rs`.
 - Dockerised for easy deployment.
 - Backup of DNS records before updates.
@@ -30,7 +30,7 @@ FlareSync is a lightweight Rust application that automatically updates your Clou
 #### Local Build
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/flaresync.git
+   git clone https://github.com/BattermanZ/FlareSync.git
    cd flaresync
    ```
 2. Build the project:
@@ -58,7 +58,11 @@ FlareSync is a lightweight Rust application that automatically updates your Clou
    ```
 
 #### Using Docker Compose
-Create a `docker-compose.yml` file in the project root with the following content:
+1. Build the Docker image:
+   ```bash
+   docker build -t flaresync:latest .
+   ```
+2. Create a `docker-compose.yml` file in the project root with the following content:
 
 ```yaml
 version: '3.8'
@@ -112,9 +116,9 @@ The following diagram shows the overall system architecture of FlareSync:
 +-------------------+       +------------------+       +-------------------+
 |  Public IP API    | <---> |    FlareSync     | <---> |   Cloudflare API  |
 +-------------------+       +------------------+       +-------------------+
-         |                           |                           |
-         |                           |                           |
-    [Check IP]              [Update DNS Record]          [Update Confirmed]
+          |                          |                           |
+          |                          |                           |
+      [Check IP]            [Update DNS Record]          [Update Confirmed]
 ```
 This diagram helps illustrate how FlareSync interacts with public IP services and Cloudflare to maintain updated DNS records.
 
@@ -130,4 +134,4 @@ Contributions are welcome! Please open an issue or submit a pull request.
 - Thanks to [Cloudflare](https://www.cloudflare.com/) for their powerful API.
 
 ## Contact
-For any questions or issues, feel free to open an issue on this repository or reach out via email at [your-email@example.com].
+For any questions or issues, feel free to open an issue on this repository.
