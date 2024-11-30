@@ -4,13 +4,14 @@ use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::error::Error;
-use std::fs::OpenOptions;
+use std::fs::{self, File};
 use std::io::Write;
 use std::net::Ipv4Addr;
+use std::path::Path;
 use std::time::Duration;
 use tokio::time;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct DnsRecord {
     id: String,
     name: String,
@@ -58,11 +59,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 } else {
                     info!("No update needed");
                 }
-                update_status_file(true, if updated { "IP updated" } else { "No update needed" })?;
             }
             Err(e) => {
                 error!("Failed to check or update IP: {}", e);
-                update_status_file(false, &format!("Error: {}", e))?;
             }
         }
 
@@ -72,23 +71,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn check_and_update_ip(client: &ReqwestClient, api_token: &str, zone_id: &str, domain_name: &str) -> Result<bool, Box<dyn Error>> {
-    let current_ip = client.get("https://api.ipify.org")
-        .send()
-        .await?
-        .text()
-        .await?;
+    let current_ip = retry_with_backoff(|| client.get("https://api.ipify.org").send()).await?.text().await?;
 
     info!("Current public IP: {}", current_ip);
 
     let current_ip: Ipv4Addr = current_ip.parse()?;
 
-    let dns_records: CloudflareResponse<Vec<DnsRecord>> = client.get(&format!("https://api.cloudflare.com/client/v4/zones/{}/dns_records?type=A&name={}", zone_id, domain_name))
-        .header("Authorization", format!("Bearer {}", api_token))
-        .header("Content-Type", "application/json")
-        .send()
-        .await?
-        .json()
-        .await?;
+    let dns_records: CloudflareResponse<Vec<DnsRecord>> = retry_with_backoff(|| {
+        client.get(&format!("https://api.cloudflare.com/client/v4/zones/{}/dns_records?type=A&name={}", zone_id, domain_name))
+            .header("Authorization", format!("Bearer {}", api_token))
+            .header("Content-Type", "application/json")
+            .send()
+    }).await?.json().await?;
 
     if let Some(record) = dns_records.result.get(0) {
         info!("Current Cloudflare DNS record IP: {}", record.content);
@@ -96,20 +90,21 @@ async fn check_and_update_ip(client: &ReqwestClient, api_token: &str, zone_id: &
         if record.content != current_ip.to_string() {
             info!("IP has changed. Updating DNS record...");
 
-            let update_response: CloudflareResponse<DnsRecord> = client.put(&format!("https://api.cloudflare.com/client/v4/zones/{}/dns_records/{}", zone_id, record.id))
-                .header("Authorization", format!("Bearer {}", api_token))
-                .header("Content-Type", "application/json")
-                .json(&serde_json::json!({
-                    "type": "A",
-                    "name": domain_name,
-                    "content": current_ip.to_string(),
-                    "ttl": record.ttl,
-                    "proxied": record.proxied
-                }))
-                .send()
-                .await?
-                .json()
-                .await?;
+            backup_dns_record(record, domain_name)?;
+
+            let update_response: CloudflareResponse<DnsRecord> = retry_with_backoff(|| {
+                client.put(&format!("https://api.cloudflare.com/client/v4/zones/{}/dns_records/{}", zone_id, record.id))
+                    .header("Authorization", format!("Bearer {}", api_token))
+                    .header("Content-Type", "application/json")
+                    .json(&serde_json::json!({
+                        "type": "A",
+                        "name": domain_name,
+                        "content": current_ip.to_string(),
+                        "ttl": record.ttl,
+                        "proxied": record.proxied
+                    }))
+                    .send()
+            }).await?.json().await?;
 
             if update_response.success {
                 info!("DNS record updated successfully!");
@@ -128,19 +123,49 @@ async fn check_and_update_ip(client: &ReqwestClient, api_token: &str, zone_id: &
     }
 }
 
-fn update_status_file(success: bool, message: &str) -> Result<(), Box<dyn Error>> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open("flaresync_status.txt")?;
+async fn retry_with_backoff<T, F, Fut>(f: F) -> Result<T, Box<dyn Error>>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T, reqwest::Error>>,
+{
+    let mut retries = 0;
+    let max_retries = 3;
+    let mut wait_time = Duration::from_secs(1);
 
-    let status = if success { "SUCCESS" } else { "FAILURE" };
-    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
-    writeln!(file, "Last run: {}", timestamp)?;
-    writeln!(file, "Status: {}", status)?;
-    writeln!(file, "Message: {}", message)?;
+    loop {
+        match f().await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                if retries >= max_retries {
+                    return Err(e.into());
+                }
+                error!("Request failed: {}. Retrying in {:?}...", e, wait_time);
+                time::sleep(wait_time).await;
+                retries += 1;
+                wait_time *= 2;
+                if wait_time > Duration::from_secs(60) {
+                    wait_time = Duration::from_secs(60);
+                }
+            }
+        }
+    }
+}
 
+fn backup_dns_record(record: &DnsRecord, domain_name: &str) -> Result<(), Box<dyn Error>> {
+    let backup_dir = Path::new("backups");
+    if !backup_dir.exists() {
+        fs::create_dir(backup_dir)?;
+    }
+
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let filename = format!("{}_{}_backup.json", timestamp, domain_name);
+    let backup_path = backup_dir.join(filename);
+
+    let mut file = File::create(backup_path)?;
+    let json = serde_json::to_string_pretty(record)?;
+    file.write_all(json.as_bytes())?;
+
+    info!("DNS record backup created successfully");
     Ok(())
 }
 
