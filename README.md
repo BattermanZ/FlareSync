@@ -2,6 +2,9 @@
 
 FlareSync is a lightweight Rust application that automatically updates your Cloudflare DNS records with your current public IP address. It's designed to run as a background service, periodically checking for IP changes and updating the specified DNS records accordingly.
 
+## Disclaimer
+This application was developed using an AI tool called [v0.dev](https://v0.dev). Please note that while AI tools help accelerate development, it is important to review and test the code thoroughly for your specific use cases.
+
 ## Features
 - Periodically checks your current public IP address.
 - Updates your Cloudflare DNS records only when necessary.
@@ -43,33 +46,25 @@ FlareSync is a lightweight Rust application that automatically updates your Clou
    ```
 
 #### Using Docker
-1. Build the Docker image:
-   ```bash
-   docker build -t flaresync:latest .
-   ```
-2. Run the container:
+Run the container:
    ```bash
    docker run -d \
      -e CLOUDFLARE_API_TOKEN=your_api_token \
      -e CLOUDFLARE_ZONE_ID=your_zone_id \
      -e DOMAIN_NAME=your_domain_name \
      -e UPDATE_INTERVAL=your_update_interval_in_minutes \
-     flaresync
+     battermanz/flaresync:latest
    ```
 
 #### Using Docker Compose
-1. Build the Docker image:
-   ```bash
-   docker build -t flaresync:latest .
-   ```
-2. Create a `docker-compose.yml` file in the project root with the following content:
+Create a `docker-compose.yml` file in the project root with the following content:
 
 ```yaml
 version: '3.8'
 
 services:
   flaresync:
-    image: flaresync:latest
+    image: battermanz/flaresync:latest
     container_name: flaresync
     env_file:
       - .env
@@ -116,9 +111,9 @@ The following diagram shows the overall system architecture of FlareSync:
 +-------------------+       +------------------+       +-------------------+
 |  Public IP API    | <---> |    FlareSync     | <---> |   Cloudflare API  |
 +-------------------+       +------------------+       +-------------------+
-          |                          |                           |
-          |                          |                           |
-      [Check IP]            [Update DNS Record]          [Update Confirmed]
+         |                           |                           |
+         |                           |                           |
+    [Check IP]              [Update DNS Record]          [Update Confirmed]
 ```
 This diagram helps illustrate how FlareSync interacts with public IP services and Cloudflare to maintain updated DNS records.
 
