@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   flaresync:
-    image: flaresync:latest
+    image: battermanz/flaresync:latest
     container_name: flaresync
     env_file:
       - .env
