@@ -2,8 +2,15 @@
 
 FlareSync is a lightweight Rust application that automatically updates your Cloudflare DNS records with your current public IP address. It's designed to run as a background service, periodically checking for IP changes and updating the specified DNS records accordingly.
 
+## What's New in v2.0.0
+- **Multiple Domain Support:** You can now specify multiple domain names to be updated. In your `.env` file, list them as a comma-separated string for the `DOMAIN_NAME` variable (e.g., `DOMAIN_NAME=example.com,sub.example.com`).
+- **Major Refactoring:** The codebase has been significantly refactored for better readability, maintainability, and performance.
+- **Docker-Compatible Logs:** Logging is now directed to stdout, making it easy to monitor using `docker logs`.
+- **Modern Toolchain:** The project now uses Rust 1.88 and has all dependencies updated to their latest versions for improved performance and security.
+
+
 ## Disclaimer
-This application was developed using an AI tool called [v0.dev](https://v0.dev). Please note that while AI tools help accelerate development, it is important to review and test the code thoroughly for your specific use cases.
+This application was developed using AI. Please note that while AI tools help accelerate development, it is important to review and test the code thoroughly for your specific use cases.
 
 ## Features
 - Periodically checks your current public IP address.
@@ -17,51 +24,45 @@ This application was developed using an AI tool called [v0.dev](https://v0.dev).
 ## Getting Started
 
 ### Prerequisites
-- Rust (if building locally)
-  - **Minimum Rust Version**: 1.70 or higher
-- Docker (for containerised deployment)
-  - **Minimum Docker Version**: 20.10 or higher
-- A Cloudflare account with API access
-- Environment variables configured for:
-  - `CLOUDFLARE_API_TOKEN`
-  - `CLOUDFLARE_ZONE_ID`
-  - `DOMAIN_NAME`
-  - `UPDATE_INTERVAL` (in minutes)
+- Rust (if building from source)
+- Docker (for containerized deployment)
+- A Cloudflare account with an API token.
 
 ### Installation
 
-#### Local Build
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/BattermanZ/FlareSync.git
-   cd flaresync
-   ```
-2. Build the project:
-   ```bash
-   cargo build --release
-   ```
-3. Run the application:
-   ```bash
-   cargo run
-   ```
+The recommended way to run FlareSync is using Docker or Docker Compose.
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/BattermanZ/FlareSync.git
+    cd FlareSync
+    ```
+
+2.  **Set up your environment:**
+    Create a `.env` file by copying the example file:
+    ```bash
+    cp .env.example .env
+    ```
+    Edit the `.env` file and fill in your details. See the [Configuration](#configuration) section for more details on the environment variables.
 
 #### Using Docker
-Run the container:
-   ```bash
-   docker run -d \
-     -e CLOUDFLARE_API_TOKEN=your_api_token \
-     -e CLOUDFLARE_ZONE_ID=your_zone_id \
-     -e DOMAIN_NAME=your_domain_name \
-     -e UPDATE_INTERVAL=your_update_interval_in_minutes \
-     battermanz/flaresync:latest
-   ```
+```bash
+docker run -d \
+  --name flaresync \
+  --env-file .env \
+  -v $(pwd)/logs:/app/logs \
+  -v $(pwd)/backups:/app/backups \
+  --restart unless-stopped \
+  battermanz/flaresync:latest
+```
 
 #### Using Docker Compose
-Create a `docker-compose.yml` file in the project root with the following content:
-
+This is the recommended method for deployment.
+```bash
+docker-compose up -d
+```
+The `docker-compose.yml` file is already included in the repository. For reference, it contains:
 ```yaml
-version: '3.8'
-
 services:
   flaresync:
     image: battermanz/flaresync:latest
@@ -69,34 +70,37 @@ services:
     env_file:
       - .env
     volumes:
-      - ./logs:/app/logs
       - ./backups:/app/backups
-    environment:
-      TZ: your_timezone
-      PUID: your_puid
-      PGID: your_pgid
     restart: unless-stopped
 ```
-Replace `your_timezone`, `your_puid`, and `your_pgid` with your actual timezone and user/group IDs for permissions.
+
+#### Building from Source
+If you prefer to build from source:
+1.  Make sure you have Rust installed (min. version 1.70).
+2.  Set up your `.env` file as described above. The application will load it automatically.
+3.  Build and run the application:
+    ```bash
+    cargo run --release
+    ```
 
 ## Configuration
 
 ### Environment Variables
-Create a `.env` file in the project root with the following content:
+This project uses environment variables for configuration. Create a `.env` file in the project root by copying the `.env.example` file.
 
-```dotenv
-CLOUDFLARE_API_TOKEN=your_cloudflare_api_token
-CLOUDFLARE_ZONE_ID=your_cloudflare_zone_id
-DOMAIN_NAME=your_domain.com
-UPDATE_INTERVAL=time_in_minutes
-```
-Replace the values with your actual Cloudflare API token, Zone ID, domain name, and desired update interval in minutes.
+| Variable                 | Description                               | Default     |
+| ------------------------ | ----------------------------------------- | ----------- |
+| `CLOUDFLARE_API_TOKEN`   | Your Cloudflare API token.                | (required)  |
+| `CLOUDFLARE_ZONE_ID`     | The Zone ID of your domain.               | (required)  |
+| `DOMAIN_NAME`            | A single domain or multiple domains separated by commas (e.g., `domain1.com,domain2.com`). | (required)  |
+| `UPDATE_INTERVAL`        | The update interval in minutes.           | `5`         |
+| `TZ`                     | The timezone for the container.           | `Etc/UTC`   |
+| `PUID`                   | The user ID for file permissions.         | `1000`      |
+| `PGID`                   | The group ID for file permissions.        | `1000`      |
+
 
 ### Usage
 Make sure your `.env` file is in the same directory as the `docker-compose.yml` file.
-
-### Logging
-Logs are stored in `/app/logs/flaresync.log` by default. Logs rotate automatically when they exceed 10 MB, keeping up to 5 backups.
 
 ## Backups
 DNS record backups are stored in the `backups` directory. A new backup is created each time a DNS record is updated.
@@ -130,3 +134,4 @@ Contributions are welcome! Please open an issue or submit a pull request.
 
 ## Contact
 For any questions or issues, feel free to open an issue on this repository.
+

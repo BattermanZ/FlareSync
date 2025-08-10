@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   flaresync:
     image: battermanz/flaresync:latest
@@ -7,10 +5,5 @@ services:
     env_file:
       - .env
     volumes:
-      - ./logs:/app/logs
       - ./backups:/app/backups
-    environment:
-      TZ: your_timezone
-      PUID: your_puid
-      PGID: your_pgid
     restart: unless-stopped
