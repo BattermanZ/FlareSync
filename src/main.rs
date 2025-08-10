@@ -39,11 +39,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let api_token = env::var("CLOUDFLARE_API_TOKEN").expect("CLOUDFLARE_API_TOKEN must be set");
     let zone_id = env::var("CLOUDFLARE_ZONE_ID").expect("CLOUDFLARE_ZONE_ID must be set");
-    let domain_name = env::var("DOMAIN_NAME").expect("DOMAIN_NAME must be set");
+    let domain_names_str = env::var("DOMAIN_NAME").expect("DOMAIN_NAME must be set");
     let update_interval: u64 = env::var("UPDATE_INTERVAL")
         .expect("UPDATE_INTERVAL must be set")
         .parse()
         .expect("UPDATE_INTERVAL must be a number");
+
+    let domain_names: Vec<String> = domain_names_str
+        .split(|c| c == ',' || c == ';')
+        .map(|s| s.trim().to_string())
+        .collect();
 
     let client = ReqwestClient::builder()
         .timeout(Duration::from_secs(30))
@@ -52,16 +57,32 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("FlareSync started");
 
     loop {
-        match check_and_update_ip(&client, &api_token, &zone_id, &domain_name).await {
-            Ok(updated) => {
-                if updated {
-                    info!("IP address updated successfully");
-                } else {
-                    info!("No update needed");
-                }
-            }
+        let current_ip = match get_current_ip(&client).await {
+            Ok(ip) => ip,
             Err(e) => {
-                error!("Failed to check or update IP: {}", e);
+                error!("Failed to get current IP: {}. Retrying in 1 minute.", e);
+                time::sleep(Duration::from_secs(60)).await;
+                continue;
+            }
+        };
+        info!("Current public IP: {}", current_ip);
+
+        for domain_name in &domain_names {
+            match check_and_update_ip(&client, &api_token, &zone_id, domain_name, &current_ip).await
+            {
+                Ok(updated) => {
+                    if updated {
+                        info!("IP address updated successfully for {}", domain_name);
+                    } else {
+                        info!("No update needed for {}", domain_name);
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to check or update IP for {}: {}",
+                        domain_name, e
+                    );
+                }
             }
         }
 
@@ -70,30 +91,53 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-async fn check_and_update_ip(client: &ReqwestClient, api_token: &str, zone_id: &str, domain_name: &str) -> Result<bool, Box<dyn Error>> {
-    let current_ip = retry_with_backoff(|| client.get("https://api.ipify.org").send()).await?.text().await?;
+async fn get_current_ip(client: &ReqwestClient) -> Result<Ipv4Addr, Box<dyn Error>> {
+    let ip_str = retry_with_backoff(|| client.get("https://api.ipify.org").send())
+        .await?
+        .text()
+        .await?;
+    ip_str.parse().map_err(|e| e.into())
+}
 
-    info!("Current public IP: {}", current_ip);
-
-    let current_ip: Ipv4Addr = current_ip.parse()?;
-
+async fn check_and_update_ip(
+    client: &ReqwestClient,
+    api_token: &str,
+    zone_id: &str,
+    domain_name: &str,
+    current_ip: &Ipv4Addr,
+) -> Result<bool, Box<dyn Error>> {
+    info!("Checking DNS for domain: {}", domain_name);
     let dns_records: CloudflareResponse<Vec<DnsRecord>> = retry_with_backoff(|| {
-        client.get(&format!("https://api.cloudflare.com/client/v4/zones/{}/dns_records?type=A&name={}", zone_id, domain_name))
+        client
+            .get(&format!(
+                "https://api.cloudflare.com/client/v4/zones/{}/dns_records?type=A&name={}",
+                zone_id, domain_name
+            ))
             .header("Authorization", format!("Bearer {}", api_token))
             .header("Content-Type", "application/json")
             .send()
-    }).await?.json().await?;
+    })
+    .await?
+    .json()
+    .await?;
 
     if let Some(record) = dns_records.result.get(0) {
-        info!("Current Cloudflare DNS record IP: {}", record.content);
+        info!(
+            "Current Cloudflare DNS record IP for {}: {}",
+            domain_name, record.content
+        );
 
         if record.content != current_ip.to_string() {
-            info!("IP has changed. Updating DNS record...");
+            info!("IP for {} has changed. Updating DNS record...", domain_name);
 
             backup_dns_record(record, domain_name)?;
 
             let update_response: CloudflareResponse<DnsRecord> = retry_with_backoff(|| {
-                client.put(&format!("https://api.cloudflare.com/client/v4/zones/{}/dns_records/{}", zone_id, record.id))
+                client
+                    .put(&format!(
+                        "https://api.cloudflare.com/client/v4/zones/{}/dns_records/{}",
+                        zone_id, record.id
+                    ))
                     .header("Authorization", format!("Bearer {}", api_token))
                     .header("Content-Type", "application/json")
                     .json(&serde_json::json!({
@@ -104,21 +148,27 @@ async fn check_and_update_ip(client: &ReqwestClient, api_token: &str, zone_id: &
                         "proxied": record.proxied
                     }))
                     .send()
-            }).await?.json().await?;
+            })
+            .await?
+            .json()
+            .await?;
 
             if update_response.success {
-                info!("DNS record updated successfully!");
+                info!("DNS record for {} updated successfully!", domain_name);
                 Ok(true)
             } else {
-                error!("Failed to update DNS record: {:?}", update_response.errors);
-                Err("Failed to update DNS record".into())
+                error!(
+                    "Failed to update DNS record for {}: {:?}",
+                    domain_name, update_response.errors
+                );
+                Err(format!("Failed to update DNS record for {}", domain_name).into())
             }
         } else {
-            info!("IP hasn't changed. No update needed.");
+            info!("IP for {} hasn't changed. No update needed.", domain_name);
             Ok(false)
         }
     } else {
-        warn!("No matching DNS record found.");
+        warn!("No matching DNS record found for {}.", domain_name);
         Ok(false)
     }
 }
