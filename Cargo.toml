@@ -1,5 +1,5 @@
 [package]
-name = "FlareSync"
+name = "flaresync"
 version = "1.0.2"
 edition = "2021"
 

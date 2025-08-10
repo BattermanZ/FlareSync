@@ -3,20 +3,6 @@
 version = 4
 
 [[package]]
-name = "FlareSync"
-version = "1.0.2"
-dependencies = [
- "chrono",
- "dotenv",
- "log",
- "log4rs",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "addr2line"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -224,6 +210,20 @@ name = "fastrand"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "486f806e73c5707928240ddc295403b1b93c96a02038563881c4a2fd84b81ac4"
+
+[[package]]
+name = "flaresync"
+version = "1.0.2"
+dependencies = [
+ "chrono",
+ "dotenv",
+ "log",
+ "log4rs",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "fnv"
