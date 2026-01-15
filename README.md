@@ -2,7 +2,7 @@
 
 FlareSync is a lightweight Rust application that automatically updates your Cloudflare DNS records with your current public IP address. It's designed to run as a background service, periodically checking for IP changes and updating the specified DNS records accordingly.
 
-## What's New in v2.0.0
+## What's New in v2.1.0
 - **Multiple Domain Support:** You can now specify multiple domain names to be updated. In your `.env` file, list them as a comma-separated string for the `DOMAIN_NAME` variable (e.g., `DOMAIN_NAME=example.com,sub.example.com`).
 - **Major Refactoring:** The codebase has been significantly refactored for better readability, maintainability, and performance.
 - **Docker-Compatible Logs:** Logging is now directed to stdout, making it easy to monitor using `docker logs`.
