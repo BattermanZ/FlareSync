@@ -1,5 +1,5 @@
 # Stage 1: Builder using cargo-chef for dependency caching
-FROM rust:1.88-slim-bookworm AS chef
+FROM rust:1.92-slim-bookworm AS chef
 WORKDIR /app
 
 # Install build dependencies
@@ -28,7 +28,7 @@ RUN cargo build --release
 
 # Stage 4: Final image
 # Use a distroless image for a smaller and more secure final image
-FROM gcr.io/distroless/cc-debian12
+FROM gcr.io/distroless/cc-debian13:nonroot
 WORKDIR /app
 
 # Copy the compiled binary from the builder stage

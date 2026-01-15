@@ -12,6 +12,11 @@ backups/
 
 # Documentation (excluding LICENSE)
 README.md
+WORKFLOW.md
+AGENTS.md
+
+# Repo metadata not needed for build context
+LICENSE
 
 # IDE and editor files
 .idea/

@@ -6,7 +6,7 @@ FlareSync is a lightweight Rust application that automatically updates your Clou
 - **Multiple Domain Support:** You can now specify multiple domain names to be updated. In your `.env` file, list them as a comma-separated string for the `DOMAIN_NAME` variable (e.g., `DOMAIN_NAME=example.com,sub.example.com`).
 - **Major Refactoring:** The codebase has been significantly refactored for better readability, maintainability, and performance.
 - **Docker-Compatible Logs:** Logging is now directed to stdout, making it easy to monitor using `docker logs`.
-- **Modern Toolchain:** The project now uses Rust 1.88 and has all dependencies updated to their latest versions for improved performance and security.
+- **Modern Toolchain:** The project now uses Rust 1.92 and has all dependencies updated to their latest versions for improved performance and security.
 
 
 ## Disclaimer
@@ -18,6 +18,7 @@ This application was developed using AI. Please note that while AI tools help ac
 - Asynchronous operation powered by `tokio` for efficiency.
 - Detailed and structured logging with `log4rs`.
 - Dockerised for easy deployment.
+- For improved security, the official Docker image is distroless and runs rootless (non-root).
 - Backup of DNS records before updates.
 - Retry mechanism with exponential backoff for improved reliability.
 

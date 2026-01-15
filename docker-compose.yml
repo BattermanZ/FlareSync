@@ -2,6 +2,7 @@ services:
   flaresync:
     image: battermanz/flaresync:latest
     container_name: flaresync
+    user: "1000:1000"
     env_file:
       - .env
     volumes:
