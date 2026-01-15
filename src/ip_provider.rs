@@ -25,7 +25,7 @@ async fn fetch_ipv4_from_source(
         let response: Result<reqwest::Response, FlareSyncError> =
             match time::timeout(per_attempt_timeout, client.get(url).send()).await {
                 Ok(result) => result.map_err(FlareSyncError::from),
-                Err(_) => Err(FlareSyncError::IpProvider(format!(
+                Err(_) => Err(FlareSyncError::Timeout(format!(
                     "Timed out fetching IP from {}",
                     url
                 ))),
@@ -37,10 +37,7 @@ async fn fetch_ipv4_from_source(
                 let body = time::timeout(per_attempt_timeout, resp.text())
                     .await
                     .map_err(|_| {
-                        FlareSyncError::IpProvider(format!(
-                            "Timed out reading response from {}",
-                            url
-                        ))
+                        FlareSyncError::Timeout(format!("Timed out reading response from {}", url))
                     })??;
                 let ip_str = body.trim();
                 return ip_str.parse::<Ipv4Addr>().map_err(|_| {
@@ -52,10 +49,7 @@ async fn fetch_ipv4_from_source(
             }
             Err(e) => {
                 let transient = matches!(e, FlareSyncError::Network(_))
-                    || matches!(
-                        e,
-                        FlareSyncError::IpProvider(ref s) if s.contains("Timed out")
-                    );
+                    || matches!(e, FlareSyncError::Timeout(_));
                 if !transient || retries >= max_retries {
                     return Err(e);
                 }
@@ -82,10 +76,8 @@ pub async fn get_current_ip(client: &ReqwestClient) -> Result<Ipv4Addr, FlareSyn
     );
 
     let mut counts: HashMap<Ipv4Addr, usize> = HashMap::new();
-    for result in [r1, r2, r3] {
-        if let Ok(ip) = result {
-            *counts.entry(ip).or_insert(0) += 1;
-        }
+    for ip in [r1, r2, r3].into_iter().flatten() {
+        *counts.entry(ip).or_insert(0) += 1;
     }
 
     if let Some((ip, count)) = counts.into_iter().max_by_key(|(_, count)| *count) {

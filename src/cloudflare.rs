@@ -1,7 +1,8 @@
 use crate::errors::FlareSyncError;
-use log::{error, info, warn};
+use log::{info, warn};
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fs::{self, File};
 use std::io::Write;
 use std::net::Ipv4Addr;
@@ -30,12 +31,34 @@ pub struct CloudflareResponse<T> {
 
 fn is_transient_cloudflare_error(err: &FlareSyncError) -> bool {
     match err {
+        FlareSyncError::CloudflareTransient(_) => true,
         FlareSyncError::Network(e) => match e.status() {
             Some(status) => status.as_u16() == 429 || status.is_server_error(),
             None => true,
         },
         _ => false,
     }
+}
+
+fn cloudflare_errors_look_transient(errors: &[Value]) -> bool {
+    errors.iter().any(|error| {
+        let code = error.get("code").and_then(|v| v.as_i64());
+        if code == Some(1015) {
+            return true;
+        }
+
+        let message = error
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        message.contains("rate limit")
+            || message.contains("ratelimit")
+            || message.contains("too many requests")
+            || message.contains("temporar")
+            || message.contains("timeout")
+            || message.contains("try again")
+    })
 }
 
 async fn retry_cloudflare<T, F, Fut>(mut f: F) -> Result<T, FlareSyncError>
@@ -109,16 +132,22 @@ async fn get_dns_record(
             .send()
             .await?
             .error_for_status()?;
-        Ok(resp.json().await?)
+        let response: CloudflareResponse<Vec<DnsRecord>> = resp.json().await?;
+        if response.success {
+            Ok(response)
+        } else if cloudflare_errors_look_transient(&response.errors) {
+            Err(FlareSyncError::CloudflareTransient(format!(
+                "API error (transient) fetching {}: {:?}",
+                domain_name, response.errors
+            )))
+        } else {
+            Err(FlareSyncError::Cloudflare(format!(
+                "API error fetching {}: {:?}",
+                domain_name, response.errors
+            )))
+        }
     })
     .await?;
-
-    if !response.success {
-        return Err(FlareSyncError::Cloudflare(format!(
-            "API error: {:?}",
-            response.errors
-        )));
-    }
 
     Ok(response.result.into_iter().next())
 }
@@ -130,7 +159,7 @@ async fn update_dns_record(
     record: &DnsRecord,
     current_ip: &Ipv4Addr,
 ) -> Result<(), FlareSyncError> {
-    let response: CloudflareResponse<DnsRecord> = retry_cloudflare(|| async {
+    let _response: CloudflareResponse<DnsRecord> = retry_cloudflare(|| async {
         let resp = client
             .put(format!(
                 "https://api.cloudflare.com/client/v4/zones/{}/dns_records/{}",
@@ -148,23 +177,25 @@ async fn update_dns_record(
             .send()
             .await?
             .error_for_status()?;
-        Ok(resp.json().await?)
+        let response: CloudflareResponse<DnsRecord> = resp.json().await?;
+        if response.success {
+            Ok(response)
+        } else if cloudflare_errors_look_transient(&response.errors) {
+            Err(FlareSyncError::CloudflareTransient(format!(
+                "API error (transient) updating {}: {:?}",
+                record.name, response.errors
+            )))
+        } else {
+            Err(FlareSyncError::Cloudflare(format!(
+                "API error updating {}: {:?}",
+                record.name, response.errors
+            )))
+        }
     })
     .await?;
 
-    if response.success {
-        info!("DNS record for {} updated successfully!", record.name);
-        Ok(())
-    } else {
-        error!(
-            "Failed to update DNS record for {}: {:?}",
-            record.name, response.errors
-        );
-        Err(FlareSyncError::Cloudflare(format!(
-            "Failed to update DNS record for {}",
-            record.name
-        )))
-    }
+    info!("DNS record for {} updated successfully!", record.name);
+    Ok(())
 }
 
 fn backup_dns_record(record: &DnsRecord) -> Result<(), FlareSyncError> {

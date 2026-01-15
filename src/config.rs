@@ -31,7 +31,7 @@ impl Config {
         }
 
         let domain_names: Vec<String> = domain_names_str
-            .split(|c| c == ',' || c == ';')
+            .split([',', ';'])
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())

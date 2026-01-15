@@ -5,8 +5,10 @@ pub enum FlareSyncError {
     Config(String),
     Io(std::io::Error),
     Network(reqwest::Error),
+    Timeout(String),
     Json(serde_json::Error),
     IpProvider(String),
+    CloudflareTransient(String),
     Cloudflare(String),
 }
 
@@ -16,8 +18,12 @@ impl fmt::Display for FlareSyncError {
             FlareSyncError::Config(s) => write!(f, "Configuration error: {}", s),
             FlareSyncError::Io(e) => write!(f, "IO error: {}", e),
             FlareSyncError::Network(e) => write!(f, "Network error: {}", e),
+            FlareSyncError::Timeout(s) => write!(f, "Timeout error: {}", s),
             FlareSyncError::Json(e) => write!(f, "JSON error: {}", e),
             FlareSyncError::IpProvider(s) => write!(f, "IP provider error: {}", s),
+            FlareSyncError::CloudflareTransient(s) => {
+                write!(f, "Cloudflare transient error: {}", s)
+            }
             FlareSyncError::Cloudflare(s) => write!(f, "Cloudflare API error: {}", s),
         }
     }
