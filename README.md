@@ -13,7 +13,7 @@ FlareSync is a lightweight Rust application that automatically updates your Clou
 This application was developed using AI. Please note that while AI tools help accelerate development, it is important to review and test the code thoroughly for your specific use cases.
 
 ## Features
-- Periodically checks your current public IP address.
+- Periodically checks your current public IP address (using multiple public IP sources for reliability).
 - Updates your Cloudflare DNS records only when necessary.
 - Asynchronous operation powered by `tokio` for efficiency.
 - Detailed and structured logging with `log4rs`.
@@ -134,4 +134,3 @@ Contributions are welcome! Please open an issue or submit a pull request.
 
 ## Contact
 For any questions or issues, feel free to open an issue on this repository.
-

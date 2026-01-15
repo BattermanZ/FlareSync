@@ -6,6 +6,7 @@ pub enum FlareSyncError {
     Io(std::io::Error),
     Network(reqwest::Error),
     Json(serde_json::Error),
+    IpProvider(String),
     Cloudflare(String),
 }
 
@@ -16,6 +17,7 @@ impl fmt::Display for FlareSyncError {
             FlareSyncError::Io(e) => write!(f, "IO error: {}", e),
             FlareSyncError::Network(e) => write!(f, "Network error: {}", e),
             FlareSyncError::Json(e) => write!(f, "JSON error: {}", e),
+            FlareSyncError::IpProvider(s) => write!(f, "IP provider error: {}", s),
             FlareSyncError::Cloudflare(s) => write!(f, "Cloudflare API error: {}", s),
         }
     }

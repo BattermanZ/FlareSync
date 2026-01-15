@@ -3,13 +3,14 @@ use reqwest::Client as ReqwestClient;
 use std::time::Duration;
 use tokio::time;
 
-use flaresync::config::Config;
 use flaresync::cloudflare::check_and_update_ip;
+use flaresync::config::Config;
 use flaresync::ip_provider::get_current_ip;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let log_config_path = std::env::var("LOG_CONFIG_PATH").unwrap_or_else(|_| "log4rs.yaml".to_string());
+    let log_config_path =
+        std::env::var("LOG_CONFIG_PATH").unwrap_or_else(|_| "log4rs.yaml".to_string());
     log4rs::init_file(&log_config_path, Default::default())?;
 
     let config = Config::from_env()?;
@@ -32,7 +33,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Current public IP: {}", current_ip);
 
         for domain_name in &config.domain_names {
-            match check_and_update_ip(&client, &config.api_token, &config.zone_id, domain_name, &current_ip).await
+            match check_and_update_ip(
+                &client,
+                &config.api_token,
+                &config.zone_id,
+                domain_name,
+                &current_ip,
+            )
+            .await
             {
                 Ok(updated) => {
                     if updated {
@@ -42,10 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 Err(e) => {
-                    error!(
-                        "Failed to check or update IP for {}: {}",
-                        domain_name, e
-                    );
+                    error!("Failed to check or update IP for {}: {}", domain_name, e);
                 }
             }
         }

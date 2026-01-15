@@ -1,11 +1,13 @@
 use crate::errors::FlareSyncError;
-use log::{info, warn, error};
+use log::{error, info, warn};
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::Write;
 use std::net::Ipv4Addr;
 use std::path::Path;
+use std::time::Duration;
+use tokio::time;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DnsRecord {
@@ -26,23 +28,90 @@ pub struct CloudflareResponse<T> {
     pub result: T,
 }
 
+fn is_transient_cloudflare_error(err: &FlareSyncError) -> bool {
+    match err {
+        FlareSyncError::Network(e) => match e.status() {
+            Some(status) => status.as_u16() == 429 || status.is_server_error(),
+            None => true,
+        },
+        _ => false,
+    }
+}
+
+async fn retry_cloudflare<T, F, Fut>(mut f: F) -> Result<T, FlareSyncError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, FlareSyncError>>,
+{
+    let mut retries = 0;
+    let max_retries = 3;
+    let mut wait_time = Duration::from_secs(1);
+
+    loop {
+        match f().await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                if !is_transient_cloudflare_error(&e) || retries >= max_retries {
+                    return Err(e);
+                }
+                warn!(
+                    "Cloudflare request failed: {}. Retrying in {:?}...",
+                    e, wait_time
+                );
+                time::sleep(wait_time).await;
+                retries += 1;
+                wait_time *= 2;
+                if wait_time > Duration::from_secs(60) {
+                    wait_time = Duration::from_secs(60);
+                }
+            }
+        }
+    }
+}
+
+fn sanitize_filename_component(input: &str) -> String {
+    let mut sanitized: String = input
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+
+    const MAX_LEN: usize = 128;
+    if sanitized.len() > MAX_LEN {
+        sanitized.truncate(MAX_LEN);
+    }
+    if sanitized.is_empty() {
+        sanitized = "record".to_string();
+    }
+    sanitized
+}
+
 async fn get_dns_record(
     client: &ReqwestClient,
     api_token: &str,
     zone_id: &str,
     domain_name: &str,
 ) -> Result<Option<DnsRecord>, FlareSyncError> {
-    let response: CloudflareResponse<Vec<DnsRecord>> = client
-        .get(&format!(
-            "https://api.cloudflare.com/client/v4/zones/{}/dns_records?type=A&name={}",
-            zone_id, domain_name
-        ))
-        .header("Authorization", format!("Bearer {}", api_token))
-        .header("Content-Type", "application/json")
-        .send()
-        .await?
-        .json()
-        .await?;
+    let response: CloudflareResponse<Vec<DnsRecord>> = retry_cloudflare(|| async {
+        let resp = client
+            .get(format!(
+                "https://api.cloudflare.com/client/v4/zones/{}/dns_records",
+                zone_id
+            ))
+            .query(&[("type", "A"), ("name", domain_name)])
+            .header("Authorization", format!("Bearer {}", api_token))
+            .header("Content-Type", "application/json")
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(resp.json().await?)
+    })
+    .await?;
 
     if !response.success {
         return Err(FlareSyncError::Cloudflare(format!(
@@ -61,24 +130,27 @@ async fn update_dns_record(
     record: &DnsRecord,
     current_ip: &Ipv4Addr,
 ) -> Result<(), FlareSyncError> {
-    let response: CloudflareResponse<DnsRecord> = client
-        .put(&format!(
-            "https://api.cloudflare.com/client/v4/zones/{}/dns_records/{}",
-            zone_id, record.id
-        ))
-        .header("Authorization", format!("Bearer {}", api_token))
-        .header("Content-Type", "application/json")
-        .json(&serde_json::json!({
-            "type": "A",
-            "name": record.name,
-            "content": current_ip.to_string(),
-            "ttl": record.ttl,
-            "proxied": record.proxied
-        }))
-        .send()
-        .await?
-        .json()
-        .await?;
+    let response: CloudflareResponse<DnsRecord> = retry_cloudflare(|| async {
+        let resp = client
+            .put(format!(
+                "https://api.cloudflare.com/client/v4/zones/{}/dns_records/{}",
+                zone_id, record.id
+            ))
+            .header("Authorization", format!("Bearer {}", api_token))
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "type": "A",
+                "name": record.name,
+                "content": current_ip.to_string(),
+                "ttl": record.ttl,
+                "proxied": record.proxied
+            }))
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(resp.json().await?)
+    })
+    .await?;
 
     if response.success {
         info!("DNS record for {} updated successfully!", record.name);
@@ -100,7 +172,8 @@ fn backup_dns_record(record: &DnsRecord) -> Result<(), FlareSyncError> {
     fs::create_dir_all(backup_dir)?;
 
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    let filename = format!("{}_{}_backup.json", timestamp, record.name);
+    let safe_name = sanitize_filename_component(&record.name);
+    let filename = format!("{}_{}_backup.json", timestamp, safe_name);
     let backup_path = backup_dir.join(filename);
 
     let mut file = File::create(backup_path)?;
@@ -149,6 +222,8 @@ mod tests {
 
     #[test]
     fn test_backup_dns_record() {
+        let _guard = crate::test_support::global_lock();
+
         let record = DnsRecord {
             id: "1".to_string(),
             name: "test.com".to_string(),
@@ -188,5 +263,19 @@ mod tests {
         fs::remove_dir_all(test_dir).unwrap();
 
         assert!(found, "Backup file was not found");
+    }
+
+    #[test]
+    fn test_sanitize_filename_component() {
+        let _guard = crate::test_support::global_lock();
+
+        assert_eq!(
+            sanitize_filename_component("example.com"),
+            "example.com".to_string()
+        );
+        assert_eq!(
+            sanitize_filename_component("../weird/name"),
+            ".._weird_name".to_string()
+        );
     }
 }
