@@ -20,6 +20,8 @@ This application was developed using AI. Please note that while AI tools help ac
 - Dockerised for easy deployment.
 - For improved security, the official Docker image is distroless and runs rootless (non-root).
 - Backup of DNS records before updates.
+- Runtime status file for health monitoring.
+- Graceful shutdown on `SIGINT` and `SIGTERM`.
 - Retry mechanism with exponential backoff for improved reliability.
 
 ## Getting Started
@@ -53,6 +55,7 @@ docker run -d \
   --env-file .env \
   -v $(pwd)/logs:/app/logs \
   -v $(pwd)/backups:/app/backups \
+  -v $(pwd)/status:/app/status \
   --restart unless-stopped \
   battermanz/flaresync:latest
 ```
@@ -72,6 +75,7 @@ services:
       - .env
     volumes:
       - ./backups:/app/backups
+      - ./status:/app/status
     restart: unless-stopped
 ```
 
@@ -95,6 +99,7 @@ This project uses environment variables for configuration. Create a `.env` file 
 | `CLOUDFLARE_ZONE_ID`     | The Zone ID of your domain.               | (required)  |
 | `DOMAIN_NAME`            | A single domain or multiple domains separated by commas (e.g., `domain1.com,domain2.com`). | (required)  |
 | `UPDATE_INTERVAL`        | The update interval in minutes.           | `5`         |
+| `STATUS_FILE_PATH`       | Path to the runtime status JSON file.     | `status/flaresync-status.json` |
 | `TZ`                     | The timezone for the container.           | `Etc/UTC`   |
 | `PUID`                   | The user ID for file permissions.         | `1000`      |
 | `PGID`                   | The group ID for file permissions.        | `1000`      |
@@ -105,6 +110,12 @@ Make sure your `.env` file is in the same directory as the `docker-compose.yml` 
 
 ## Backups
 DNS record backups are stored in the `backups` directory. A new backup is created each time a DNS record is updated.
+
+## Runtime Status
+FlareSync writes a JSON status file to `status/flaresync-status.json` by default. The file includes startup time, last successful public IP check, per-domain status, recent errors, and shutdown state. In Docker deployments, mount `/app/status` to persist this file on the host.
+
+## Shutdown
+FlareSync handles `SIGINT` and `SIGTERM` and exits cleanly after writing a final status update. This allows Docker and systemd to stop the service without waiting for the full update interval sleep to finish.
 
 ## Security Notice
 Keep your `.env` file secure and avoid sharing it publicly. It contains sensitive information like your Cloudflare API token.

@@ -40,6 +40,13 @@ pub struct CloudflareResponse<T> {
     pub result: T,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DnsUpdateStatus {
+    Updated,
+    Unchanged,
+    Missing,
+}
+
 fn is_transient_cloudflare_error(err: &FlareSyncError) -> bool {
     match err {
         FlareSyncError::CloudflareTransient(_) => true,
@@ -258,7 +265,7 @@ pub async fn check_and_update_ip(
     zone_id: &str,
     domain_name: &str,
     current_ip: &Ipv4Addr,
-) -> Result<bool, FlareSyncError> {
+) -> Result<DnsUpdateStatus, FlareSyncError> {
     info!("Checking DNS for domain: {}", domain_name);
 
     if let Some(record) = get_dns_record(client, api_token, zone_id, domain_name).await? {
@@ -271,14 +278,14 @@ pub async fn check_and_update_ip(
             info!("IP for {} has changed. Updating DNS record...", domain_name);
             backup_dns_record(&record)?;
             update_dns_record(client, api_token, zone_id, &record, current_ip).await?;
-            Ok(true)
+            Ok(DnsUpdateStatus::Updated)
         } else {
             info!("IP for {} hasn't changed. No update needed.", domain_name);
-            Ok(false)
+            Ok(DnsUpdateStatus::Unchanged)
         }
     } else {
         warn!("No matching DNS record found for {}.", domain_name);
-        Ok(false)
+        Ok(DnsUpdateStatus::Missing)
     }
 }
 

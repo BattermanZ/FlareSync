@@ -2,6 +2,7 @@ pub mod cloudflare;
 pub mod config;
 pub mod errors;
 pub mod ip_provider;
+pub mod status;
 
 #[cfg(test)]
 pub(crate) mod test_support {

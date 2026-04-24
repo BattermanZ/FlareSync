@@ -1,8 +1,10 @@
 use crate::errors::FlareSyncError;
 use std::env;
+use std::path::PathBuf;
 use std::time::Duration;
 
 const DEFAULT_UPDATE_INTERVAL_MINUTES: u64 = 5;
+const DEFAULT_STATUS_FILE_PATH: &str = "status/flaresync-status.json";
 
 #[derive(Debug)]
 pub struct Config {
@@ -10,6 +12,7 @@ pub struct Config {
     pub zone_id: String,
     pub domain_names: Vec<String>,
     pub update_interval: Duration,
+    pub status_file_path: PathBuf,
 }
 
 impl Config {
@@ -48,12 +51,16 @@ impl Config {
                 "DOMAIN_NAME must include at least one non-empty domain".to_string(),
             ));
         }
+        let status_file_path = env::var("STATUS_FILE_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(DEFAULT_STATUS_FILE_PATH));
 
         Ok(Config {
             api_token,
             zone_id,
             domain_names,
             update_interval: Duration::from_secs(update_interval_seconds),
+            status_file_path,
         })
     }
 }
@@ -75,6 +82,7 @@ mod tests {
             "CLOUDFLARE_ZONE_ID",
             "DOMAIN_NAME",
             "UPDATE_INTERVAL",
+            "STATUS_FILE_PATH",
         ];
         let original_vars: Vec<_> = vars_to_clear
             .iter()
@@ -133,6 +141,10 @@ mod tests {
             assert_eq!(config.zone_id, "test_zone_id");
             assert_eq!(config.domain_names, vec!["example.com", "another.com"]);
             assert_eq!(config.update_interval, Duration::from_secs(15 * 60));
+            assert_eq!(
+                config.status_file_path,
+                PathBuf::from(DEFAULT_STATUS_FILE_PATH)
+            );
         });
     }
 
@@ -147,6 +159,22 @@ mod tests {
             assert_eq!(
                 config.update_interval,
                 Duration::from_secs(DEFAULT_UPDATE_INTERVAL_MINUTES * 60)
+            );
+        });
+    }
+
+    #[test]
+    fn test_config_from_env_accepts_custom_status_file_path() {
+        run_test(|| {
+            env::set_var("CLOUDFLARE_API_TOKEN", "test_token");
+            env::set_var("CLOUDFLARE_ZONE_ID", "test_zone_id");
+            env::set_var("DOMAIN_NAME", "example.com");
+            env::set_var("STATUS_FILE_PATH", "/tmp/flaresync-status.json");
+
+            let config = Config::from_env().unwrap();
+            assert_eq!(
+                config.status_file_path,
+                PathBuf::from("/tmp/flaresync-status.json")
             );
         });
     }

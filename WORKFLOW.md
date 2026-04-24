@@ -9,16 +9,18 @@ flowchart TD
   A["Process start"] --> B["Init logging (LOG_CONFIG_PATH or log4rs.yaml)"]
   B --> C["Load config from env/.env"]
   C --> D["Build reqwest Client (30s timeout)"]
-  D --> E["Loop forever"]
+  D --> S0["Write initial runtime status"]
+  S0 --> E["Loop forever"]
 
   E --> F["Get current public IPv4"]
-  F -->|quorum ok| G["For each DOMAIN_NAME"]
-  F -->|error| F1["Log error; sleep 60s; continue loop"]
+  F -->|quorum ok| S1["Update runtime status with public IP"]
+  S1 --> G["For each DOMAIN_NAME"]
+  F -->|error| F1["Log error; update runtime status; sleep 60s; continue loop"]
   F1 --> E
 
   G --> H["Fetch Cloudflare A record for domain"]
   H -->|record found| I["Compare record.content vs current IPv4"]
-  H -->|no record| H1["Warn; continue next domain"]
+  H -->|no record| H1["Warn; write missing status; continue next domain"]
   H1 --> G
 
   I -->|same| I1["Log no update needed"]
@@ -26,11 +28,13 @@ flowchart TD
   J --> K["Update Cloudflare A record to current IPv4"]
   K --> K1["Log update success"]
 
-  I1 --> G
-  K1 --> G
+  I1 --> S2["Write per-domain runtime status"]
+  K1 --> S2
+  S2 --> G
 
   G --> L["Sleep UPDATE_INTERVAL"]
-  L --> E
+  L -->|interval elapsed| E
+  L -->|SIGINT/SIGTERM| X["Write shutdown status and exit"]
 ```
 
 ## Inputs and Configuration
@@ -42,10 +46,12 @@ flowchart LR
   CFG --> ZID["CLOUDFLARE_ZONE_ID (required)"]
   CFG --> DOM["DOMAIN_NAME (required; comma/semicolon-separated; empty entries ignored)"]
   CFG --> INT["UPDATE_INTERVAL minutes (optional; defaults to 5; must be >= 1)"]
+  CFG --> STS["STATUS_FILE_PATH (optional)"]
   ENV --> LOG["LOG_CONFIG_PATH (optional)"]
 ```
 
 - `LOG_CONFIG_PATH` defaults to `log4rs.yaml` if unset.
+- `STATUS_FILE_PATH` defaults to `status/flaresync-status.json` if unset.
 - `DOMAIN_NAME` may contain multiple entries separated by `,` or `;`. Empty entries are dropped; if all entries are empty, startup fails.
 - `UPDATE_INTERVAL` is interpreted as minutes, defaults to `5` when unset, and must be `>= 1`.
 
@@ -190,6 +196,31 @@ The app logs:
 - Per-domain decisions (no record / no change / updated)
 - Retry warnings and errors
 
+## Runtime Status
+
+FlareSync writes a JSON runtime status file after startup, IP-check results, per-domain results, errors, and shutdown.
+
+Default path:
+- `status/flaresync-status.json`
+
+Config override:
+- `STATUS_FILE_PATH`
+
+The status file includes:
+- `started_at`
+- `updated_at`
+- `last_public_ip`
+- `last_ip_check_at`
+- `domains`
+- `last_error`
+- `shutting_down`
+
+Status write failures are logged as warnings and do not stop DNS updates.
+
+## Shutdown
+
+FlareSync listens for `SIGINT` and `SIGTERM`. During IP discovery and interval waits, a shutdown signal interrupts waiting, writes a final status file with `shutting_down: true`, and exits cleanly.
+
 ## Deployment Notes (Docker)
 
 ```mermaid
@@ -201,3 +232,4 @@ flowchart LR
 
 - The container image sets `LOG_CONFIG_PATH=log4rs.docker.yaml` to log to stdout (useful for `docker logs`).
 - Backups are typically volume-mounted so they persist across container restarts.
+- Runtime status is typically volume-mounted from `./status` to `/app/status`.
