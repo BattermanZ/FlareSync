@@ -41,13 +41,13 @@ flowchart LR
   CFG --> TOK["CLOUDFLARE_API_TOKEN (required)"]
   CFG --> ZID["CLOUDFLARE_ZONE_ID (required)"]
   CFG --> DOM["DOMAIN_NAME (required; comma/semicolon-separated; empty entries ignored)"]
-  CFG --> INT["UPDATE_INTERVAL minutes (required; must be >= 1)"]
+  CFG --> INT["UPDATE_INTERVAL minutes (optional; defaults to 5; must be >= 1)"]
   ENV --> LOG["LOG_CONFIG_PATH (optional)"]
 ```
 
 - `LOG_CONFIG_PATH` defaults to `log4rs.yaml` if unset.
 - `DOMAIN_NAME` may contain multiple entries separated by `,` or `;`. Empty entries are dropped; if all entries are empty, startup fails.
-- `UPDATE_INTERVAL` is interpreted as minutes and must be `>= 1`.
+- `UPDATE_INTERVAL` is interpreted as minutes, defaults to `5` when unset, and must be `>= 1`.
 
 ## Public IP Discovery (Multi-Source + Quorum)
 

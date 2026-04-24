@@ -2,6 +2,8 @@ use crate::errors::FlareSyncError;
 use std::env;
 use std::time::Duration;
 
+const DEFAULT_UPDATE_INTERVAL_MINUTES: u64 = 5;
+
 #[derive(Debug)]
 pub struct Config {
     pub api_token: String,
@@ -20,15 +22,20 @@ impl Config {
             .map_err(|_| FlareSyncError::Config("CLOUDFLARE_ZONE_ID must be set".to_string()))?;
         let domain_names_str = env::var("DOMAIN_NAME")
             .map_err(|_| FlareSyncError::Config("DOMAIN_NAME must be set".to_string()))?;
-        let update_interval_minutes: u64 = env::var("UPDATE_INTERVAL")
-            .map_err(|_| FlareSyncError::Config("UPDATE_INTERVAL must be set".to_string()))?
-            .parse()
-            .map_err(|_| FlareSyncError::Config("UPDATE_INTERVAL must be a number".to_string()))?;
+        let update_interval_minutes: u64 = match env::var("UPDATE_INTERVAL") {
+            Ok(value) => value.parse().map_err(|_| {
+                FlareSyncError::Config("UPDATE_INTERVAL must be a number".to_string())
+            })?,
+            Err(_) => DEFAULT_UPDATE_INTERVAL_MINUTES,
+        };
         if update_interval_minutes < 1 {
             return Err(FlareSyncError::Config(
                 "UPDATE_INTERVAL must be at least 1 minute".to_string(),
             ));
         }
+        let update_interval_seconds = update_interval_minutes
+            .checked_mul(60)
+            .ok_or_else(|| FlareSyncError::Config("UPDATE_INTERVAL is too large".to_string()))?;
 
         let domain_names: Vec<String> = domain_names_str
             .split([',', ';'])
@@ -46,7 +53,7 @@ impl Config {
             api_token,
             zone_id,
             domain_names,
-            update_interval: Duration::from_secs(update_interval_minutes * 60),
+            update_interval: Duration::from_secs(update_interval_seconds),
         })
     }
 }
@@ -130,6 +137,21 @@ mod tests {
     }
 
     #[test]
+    fn test_config_from_env_defaults_update_interval() {
+        run_test(|| {
+            env::set_var("CLOUDFLARE_API_TOKEN", "test_token");
+            env::set_var("CLOUDFLARE_ZONE_ID", "test_zone_id");
+            env::set_var("DOMAIN_NAME", "example.com");
+
+            let config = Config::from_env().unwrap();
+            assert_eq!(
+                config.update_interval,
+                Duration::from_secs(DEFAULT_UPDATE_INTERVAL_MINUTES * 60)
+            );
+        });
+    }
+
+    #[test]
     fn test_config_from_env_filters_empty_domains() {
         run_test(|| {
             env::set_var("CLOUDFLARE_API_TOKEN", "test_token");
@@ -152,6 +174,19 @@ mod tests {
 
             let result = Config::from_env();
             assert!(result.is_err());
+        });
+    }
+
+    #[test]
+    fn test_config_from_env_rejects_interval_overflow() {
+        run_test(|| {
+            env::set_var("CLOUDFLARE_API_TOKEN", "test_token");
+            env::set_var("CLOUDFLARE_ZONE_ID", "test_zone_id");
+            env::set_var("DOMAIN_NAME", "example.com");
+            env::set_var("UPDATE_INTERVAL", u64::MAX.to_string());
+
+            let result = Config::from_env();
+            assert!(matches!(result, Err(FlareSyncError::Config(_))));
         });
     }
 }

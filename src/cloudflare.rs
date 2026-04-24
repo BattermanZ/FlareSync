@@ -1,6 +1,7 @@
 use crate::errors::FlareSyncError;
 use log::{info, warn};
 use reqwest::Client as ReqwestClient;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs::{self, File};
@@ -19,6 +20,14 @@ pub struct DnsRecord {
     pub record_type: String,
     pub proxied: bool,
     pub ttl: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CloudflareEnvelope {
+    pub success: bool,
+    pub errors: Vec<serde_json::Value>,
+    pub messages: Vec<serde_json::Value>,
+    pub result: Option<Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -58,6 +67,51 @@ fn cloudflare_errors_look_transient(errors: &[Value]) -> bool {
             || message.contains("temporar")
             || message.contains("timeout")
             || message.contains("try again")
+    })
+}
+
+fn parse_cloudflare_response<T>(
+    envelope: CloudflareEnvelope,
+    action: &str,
+    target: &str,
+) -> Result<CloudflareResponse<T>, FlareSyncError>
+where
+    T: DeserializeOwned,
+{
+    let CloudflareEnvelope {
+        success,
+        errors,
+        messages,
+        result,
+    } = envelope;
+
+    if !success {
+        if cloudflare_errors_look_transient(&errors) {
+            return Err(FlareSyncError::CloudflareTransient(format!(
+                "API error (transient) {} {}: {:?}",
+                action, target, errors
+            )));
+        }
+
+        return Err(FlareSyncError::Cloudflare(format!(
+            "API error {} {}: {:?}",
+            action, target, errors
+        )));
+    }
+
+    let result = result.ok_or_else(|| {
+        FlareSyncError::Cloudflare(format!(
+            "API response {} {} succeeded without a result",
+            action, target
+        ))
+    })?;
+    let result = serde_json::from_value(result)?;
+
+    Ok(CloudflareResponse {
+        success,
+        errors,
+        messages,
+        result,
     })
 }
 
@@ -132,20 +186,8 @@ async fn get_dns_record(
             .send()
             .await?
             .error_for_status()?;
-        let response: CloudflareResponse<Vec<DnsRecord>> = resp.json().await?;
-        if response.success {
-            Ok(response)
-        } else if cloudflare_errors_look_transient(&response.errors) {
-            Err(FlareSyncError::CloudflareTransient(format!(
-                "API error (transient) fetching {}: {:?}",
-                domain_name, response.errors
-            )))
-        } else {
-            Err(FlareSyncError::Cloudflare(format!(
-                "API error fetching {}: {:?}",
-                domain_name, response.errors
-            )))
-        }
+        let envelope: CloudflareEnvelope = resp.json().await?;
+        parse_cloudflare_response(envelope, "fetching", domain_name)
     })
     .await?;
 
@@ -177,20 +219,8 @@ async fn update_dns_record(
             .send()
             .await?
             .error_for_status()?;
-        let response: CloudflareResponse<DnsRecord> = resp.json().await?;
-        if response.success {
-            Ok(response)
-        } else if cloudflare_errors_look_transient(&response.errors) {
-            Err(FlareSyncError::CloudflareTransient(format!(
-                "API error (transient) updating {}: {:?}",
-                record.name, response.errors
-            )))
-        } else {
-            Err(FlareSyncError::Cloudflare(format!(
-                "API error updating {}: {:?}",
-                record.name, response.errors
-            )))
-        }
+        let envelope: CloudflareEnvelope = resp.json().await?;
+        parse_cloudflare_response(envelope, "updating", &record.name)
     })
     .await?;
 
@@ -308,5 +338,49 @@ mod tests {
             sanitize_filename_component("../weird/name"),
             ".._weird_name".to_string()
         );
+    }
+
+    #[test]
+    fn test_parse_cloudflare_response_preserves_error_details_without_result() {
+        let envelope = CloudflareEnvelope {
+            success: false,
+            errors: vec![serde_json::json!({
+                "code": 1001,
+                "message": "Invalid zone identifier"
+            })],
+            messages: vec![],
+            result: None,
+        };
+
+        let result: Result<CloudflareResponse<DnsRecord>, FlareSyncError> =
+            parse_cloudflare_response(envelope, "fetching", "example.com");
+
+        match result {
+            Err(FlareSyncError::Cloudflare(message)) => {
+                assert!(message.contains("Invalid zone identifier"));
+            }
+            other => panic!("expected Cloudflare API error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_cloudflare_response_classifies_transient_error_without_result() {
+        let envelope = CloudflareEnvelope {
+            success: false,
+            errors: vec![serde_json::json!({
+                "code": 1015,
+                "message": "You are being rate limited"
+            })],
+            messages: vec![],
+            result: None,
+        };
+
+        let result: Result<CloudflareResponse<DnsRecord>, FlareSyncError> =
+            parse_cloudflare_response(envelope, "updating", "example.com");
+
+        assert!(matches!(
+            result,
+            Err(FlareSyncError::CloudflareTransient(_))
+        ));
     }
 }
