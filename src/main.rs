@@ -51,17 +51,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         status.mark_ip_check_success(&current_ip);
         write_status(&status, &config);
 
+        let mut shutting_down = false;
         for domain_name in &config.domain_names {
-            match check_and_update_ip(
-                &client,
-                &config.api_token,
-                &config.zone_id,
-                domain_name,
-                &current_ip,
-            )
-            .await
-            {
-                Ok(update_status) => {
+            let update_outcome = tokio::select! {
+                result = check_and_update_ip(
+                    &client,
+                    &config.api_token,
+                    &config.zone_id,
+                    domain_name,
+                    &current_ip,
+                ) => DomainUpdateOutcome::Complete(result),
+                _ = shutdown_signal() => DomainUpdateOutcome::Shutdown,
+            };
+
+            match update_outcome {
+                DomainUpdateOutcome::Complete(Ok(update_status)) => {
                     match update_status {
                         DnsUpdateStatus::Updated => {
                             info!("IP address updated successfully for {}", domain_name);
@@ -78,12 +82,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     write_status(&status, &config);
                 }
-                Err(e) => {
+                DomainUpdateOutcome::Complete(Err(e)) => {
                     error!("Failed to check or update IP for {}: {}", domain_name, e);
                     status.mark_domain_error(domain_name, &e);
                     write_status(&status, &config);
                 }
+                DomainUpdateOutcome::Shutdown => {
+                    info!("Shutdown signal received. Exiting.");
+                    status.mark_shutting_down();
+                    write_status(&status, &config);
+                    shutting_down = true;
+                    break;
+                }
             }
+        }
+
+        if shutting_down {
+            break;
         }
 
         info!("Waiting for {:?} before next check", config.update_interval);
@@ -100,6 +115,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 enum IpCheckOutcome {
     Complete(Result<Ipv4Addr, FlareSyncError>),
+    Shutdown,
+}
+
+enum DomainUpdateOutcome {
+    Complete(Result<DnsUpdateStatus, FlareSyncError>),
     Shutdown,
 }
 

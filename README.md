@@ -49,6 +49,12 @@ The recommended way to run FlareSync is using Docker or Docker Compose.
     Edit the `.env` file and fill in your details. See the [Configuration](#configuration) section for more details on the environment variables.
 
 #### Using Docker
+Create the mounted directories before starting the container and make them writable by the container user:
+```bash
+mkdir -p backups status
+chown -R 1000:1000 backups status
+```
+
 ```bash
 docker run -d \
   --name flaresync \
@@ -112,7 +118,7 @@ Make sure your `.env` file is in the same directory as the `docker-compose.yml` 
 DNS record backups are stored in the `backups` directory. A new backup is created each time a DNS record is updated.
 
 ## Runtime Status
-FlareSync writes a JSON status file to `status/flaresync-status.json` by default. The file includes startup time, last successful public IP check, per-domain status, recent errors, and shutdown state. In Docker deployments, mount `/app/status` to persist this file on the host.
+FlareSync writes a JSON status file to `status/flaresync-status.json` by default. The file includes startup time, last successful public IP check, per-domain status, recent errors, and shutdown state. In Docker deployments, mount `/app/status` to persist this file on the host and ensure the mounted directory is writable by UID/GID `1000:1000`.
 
 ## Shutdown
 FlareSync handles `SIGINT` and `SIGTERM` and exits cleanly after writing a final status update. This allows Docker and systemd to stop the service without waiting for the full update interval sleep to finish.

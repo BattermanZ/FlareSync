@@ -217,9 +217,11 @@ The status file includes:
 
 Status write failures are logged as warnings and do not stop DNS updates.
 
+Status writes use a same-directory temporary file followed by a rename so readers do not observe partially written JSON.
+
 ## Shutdown
 
-FlareSync listens for `SIGINT` and `SIGTERM`. During IP discovery and interval waits, a shutdown signal interrupts waiting, writes a final status file with `shutting_down: true`, and exits cleanly.
+FlareSync listens for `SIGINT` and `SIGTERM`. During IP discovery, per-domain Cloudflare work, and interval waits, a shutdown signal interrupts waiting, writes a final status file with `shutting_down: true`, and exits cleanly.
 
 ## Deployment Notes (Docker)
 
@@ -233,3 +235,4 @@ flowchart LR
 - The container image sets `LOG_CONFIG_PATH=log4rs.docker.yaml` to log to stdout (useful for `docker logs`).
 - Backups are typically volume-mounted so they persist across container restarts.
 - Runtime status is typically volume-mounted from `./status` to `/app/status`.
+- Host-mounted `backups` and `status` directories must be writable by the configured container user. The default Compose file uses UID/GID `1000:1000`.
