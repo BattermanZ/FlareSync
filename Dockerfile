@@ -1,5 +1,5 @@
 # Stage 1: Builder using cargo-chef for dependency caching
-FROM rust:1.92-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b AS chef
+FROM docker.io/library/rust:1.93-slim AS chef
 WORKDIR /app
 
 # Install pinned cargo-chef
@@ -25,17 +25,20 @@ RUN cargo build --release
 
 # Stage 4: Final image
 # Use a distroless image for a smaller and more secure final image
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:8f960b7fc6a5d6e28bb07f982655925d6206678bd9a6cde2ad00ddb5e2077d78
+FROM gcr.io/distroless/cc-debian13:nonroot
 WORKDIR /app
 
 # Copy the compiled binary from the builder stage
-COPY --from=builder /app/target/release/flaresync .
+COPY --from=builder --chown=65532:65532 /app/target/release/flaresync .
 
 # Copy the log configuration for Docker
-COPY --from=builder /app/log4rs.docker.yaml .
+COPY --from=builder --chown=65532:65532 /app/log4rs.docker.yaml .
 
 # Set environment variable for the log configuration
 ENV LOG_CONFIG_PATH=log4rs.docker.yaml
+
+# Run as the distroless nonroot user even if the base image default changes.
+USER 65532:65532
 
 # Set the entrypoint for the application
 # The application is responsible for creating 'logs' and 'backups' directories if they are needed.
