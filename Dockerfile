@@ -2,8 +2,8 @@
 FROM docker.io/library/rust:1.93-slim AS chef
 WORKDIR /app
 
-# Install pinned cargo-chef
-RUN cargo install cargo-chef --version 0.1.77 --locked
+# Install cargo-chef
+RUN cargo install cargo-chef --locked
 
 # Stage 2: Planner
 # This stage creates a recipe of dependencies to be cached.
