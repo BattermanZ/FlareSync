@@ -4,9 +4,11 @@ use reqwest::Client as ReqwestClient;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fs::{self, File};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::net::Ipv4Addr;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::time::Duration;
 use tokio::time;
@@ -232,12 +234,17 @@ fn backup_dns_record(record: &DnsRecord) -> Result<(), FlareSyncError> {
     let backup_dir = Path::new("backups");
     fs::create_dir_all(backup_dir)?;
 
-    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%f");
     let safe_name = sanitize_filename_component(&record.name);
     let filename = format!("{}_{}_backup.json", timestamp, safe_name);
     let backup_path = backup_dir.join(filename);
 
-    let mut file = File::create(backup_path)?;
+    let mut open_options = OpenOptions::new();
+    open_options.write(true).create_new(true);
+    #[cfg(unix)]
+    open_options.mode(0o600);
+
+    let mut file = open_options.open(backup_path)?;
     let json = serde_json::to_string_pretty(record)?;
     file.write_all(json.as_bytes())?;
 
@@ -279,6 +286,8 @@ pub async fn check_and_update_ip(
 mod tests {
     use super::*;
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
     #[test]
@@ -311,6 +320,12 @@ mod tests {
             let entry = entry.unwrap();
             let path = entry.path();
             if path.is_file() && path.to_str().unwrap().contains("test.com_backup.json") {
+                #[cfg(unix)]
+                assert_eq!(
+                    fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+
                 let content = fs::read_to_string(path).unwrap();
                 let backed_up_record: DnsRecord = serde_json::from_str(&content).unwrap();
                 assert_eq!(backed_up_record.id, record.id);

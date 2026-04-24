@@ -1,12 +1,9 @@
 # Stage 1: Builder using cargo-chef for dependency caching
-FROM rust:1.92-slim-bookworm AS chef
+FROM rust:1.92-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b AS chef
 WORKDIR /app
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
-
-# Install cargo-chef
-RUN cargo install cargo-chef
+# Install pinned cargo-chef
+RUN cargo install cargo-chef --version 0.1.77 --locked
 
 # Stage 2: Planner
 # This stage creates a recipe of dependencies to be cached.
@@ -28,7 +25,7 @@ RUN cargo build --release
 
 # Stage 4: Final image
 # Use a distroless image for a smaller and more secure final image
-FROM gcr.io/distroless/cc-debian13:nonroot
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:8f960b7fc6a5d6e28bb07f982655925d6206678bd9a6cde2ad00ddb5e2077d78
 WORKDIR /app
 
 # Copy the compiled binary from the builder stage

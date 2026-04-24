@@ -14,7 +14,7 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Result<Self, FlareSyncError> {
-        dotenv::dotenv().ok();
+        dotenvy::dotenv().ok();
 
         let api_token = env::var("CLOUDFLARE_API_TOKEN")
             .map_err(|_| FlareSyncError::Config("CLOUDFLARE_API_TOKEN must be set".to_string()))?;
